@@ -96,3 +96,11 @@ def seeded(session):
 def test_seeded_db_matching(seeded, text, qid):
     entry, _ = qa.match(seeded, text)
     assert (entry.id if entry else None) == qid
+
+
+def test_ambiguous_top_two_is_refused(session):
+    for q, a in (("Pricing details", "A"), ("Pricing details", "B")):
+        session.add(QAEntry(question=q, answer=a, variants=[], status="approved"))
+    session.commit()
+    qa.invalidate()
+    assert qa.match(session, "Pricing details")[0] is None
