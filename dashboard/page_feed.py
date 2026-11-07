@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-import pandas as pd
 import streamlit as st
 
-from dashboard import api
+from dashboard import api, theme
 from dashboard.common import call, fmt_reasons
 
-_FLAGGED = {"block", "escalate"}
-
-
-def _color(row: pd.Series) -> list[str]:
-    bad = str(row.get("decision")) in _FLAGGED
-    return ["background-color: #ffd6d6" if bad else ""] * len(row)
+_COLUMNS = [
+    ("ts", "Time"),
+    ("actor", "Actor"),
+    ("event_type", "Event"),
+    ("decision", "Decision"),
+    ("reasons", "Reasons"),
+    ("trace_id", "Trace"),
+]
 
 
 @st.fragment(run_every=5)
@@ -24,25 +25,33 @@ def _feed() -> None:
     if not events:
         st.info("No audit events yet.")
         return
+    flagged = [e for e in events if e.get("decision") in theme.FLAGGED]
+    theme.page_head(
+        "Live feed",
+        "Newest 100 audit events, refreshed every 5 seconds.",
+        [theme.pill(f"{len(events)} events", "plain"),
+         theme.pill(f"{len(flagged)} flagged", "bad" if flagged else "plain")],
+    )
+    flagged_only = st.toggle("Show only block and escalate events", value=False)
+    shown = flagged if flagged_only else events
     rows = [
         {
-            "ts": e.get("ts"),
+            "ts": theme.short_ts(e.get("ts")),
             "actor": e.get("actor"),
             "event_type": e.get("event_type"),
-            "decision": e.get("decision"),
+            "decision": theme.decision_cell(e.get("decision")),
             "reasons": fmt_reasons(e.get("reasons")),
             "trace_id": e.get("trace_id"),
+            "_flag": e.get("decision") in theme.FLAGGED,
         }
-        for e in events
+        for e in shown
     ]
-    st.dataframe(
-        pd.DataFrame(rows).style.apply(_color, axis=1), use_container_width=True, height=600
-    )
+    if not rows:
+        st.info("No flagged events in the last 100.")
+        return
+    theme.html_table(_COLUMNS, rows, mono={"ts", "actor", "event_type", "trace_id"}, raw={"decision"},
+                     flag_if=lambda r: r["_flag"])
 
 
 def render() -> None:
-    st.header("Live feed")
-    st.caption(
-        "Newest 100 audit events, refreshed every 5 seconds. Block and escalate rows are highlighted."
-    )
     _feed()
