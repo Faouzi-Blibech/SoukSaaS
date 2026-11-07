@@ -104,3 +104,33 @@ def narrative_summary(kpis: KPIs) -> str:
 
     return chat("Write exactly 3 sentences summarising these KPIs for a business owner. Use only the numbers given.",
                 kpis.model_dump_json(), task="kpi_narrative", mock=mock)
+
+
+def forecast_revenue(session: Session, days_ahead: int = 7) -> dict:
+    """Linear-trend revenue forecast from daily succeeded revenue (least squares, no LLM).
+
+    Returns {history, forecast: [{date, revenue}], method, r2}. Forecast is clamped at >= 0.
+    """
+    from datetime import date, timedelta
+
+    history = revenue_over_time(session)
+    if len(history) < 3 or days_ahead < 1:
+        return {"history": history, "forecast": [], "method": "insufficient_data", "r2": 0.0}
+    first = date.fromisoformat(history[0]["date"])
+    xs = [(date.fromisoformat(h["date"]) - first).days for h in history]
+    ys = [h["revenue"] for h in history]
+    n = len(xs)
+    mx, my = sum(xs) / n, sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys, strict=True)) / sxx
+    intercept = my - slope * mx
+    ss_tot = sum((y - my) ** 2 for y in ys)
+    ss_res = sum((y - (intercept + slope * x)) ** 2 for x, y in zip(xs, ys, strict=True))
+    r2 = 1.0 if ss_tot == 0 else 1 - ss_res / ss_tot
+    last = date.fromisoformat(history[-1]["date"])
+    forecast = []
+    for k in range(1, days_ahead + 1):
+        d = last + timedelta(days=k)
+        value = intercept + slope * (d - first).days
+        forecast.append({"date": d.isoformat(), "revenue": round(max(0.0, value), 2)})
+    return {"history": history, "forecast": forecast, "method": "linear_trend", "r2": round(r2, 4)}

@@ -86,3 +86,32 @@ def test_narrative_mock_is_deterministic(session, data):
     k = analytics.get_kpis(session)
     text = analytics.narrative_summary(k)
     assert "3 interested" in text and "price" in text and text == analytics.narrative_summary(k)
+
+
+def test_forecast_linear_series(session):
+    for day, amount in [(1, 100), (2, 110), (3, 120), (4, 130)]:
+        session.add(_pay(f"f{day}", "p", "succeeded", amount, day))
+    session.commit()
+    out = analytics.forecast_revenue(session, days_ahead=3)
+    assert out["method"] == "linear_trend"
+    assert out["r2"] == 1.0
+    assert [f["revenue"] for f in out["forecast"]] == [140.0, 150.0, 160.0]
+    assert out["forecast"][0]["date"] == "2026-01-05"
+
+
+def test_forecast_insufficient_data(session):
+    session.add(_pay("g1", "p", "succeeded", 50, 1))
+    session.add(_pay("g2", "p", "succeeded", 60, 2))
+    session.commit()
+    out = analytics.forecast_revenue(session)
+    assert out["method"] == "insufficient_data"
+    assert out["forecast"] == []
+
+
+def test_forecast_clamped_non_negative(session):
+    for day, amount in [(1, 90), (2, 60), (3, 30)]:
+        session.add(_pay(f"h{day}", "p", "succeeded", amount, day))
+    session.commit()
+    out = analytics.forecast_revenue(session, days_ahead=5)
+    assert all(f["revenue"] >= 0 for f in out["forecast"])
+    assert out["forecast"][-1]["revenue"] == 0.0

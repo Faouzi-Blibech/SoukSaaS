@@ -29,6 +29,7 @@ All responses JSON. Timestamps ISO 8601.
 |---|---|
 | `GET /owner/kpis` | `KPIs` schema (`app/schemas.py`) |
 | `GET /owner/kpis/narrative` | `{"text": str}` |
+| `GET /owner/kpis/forecast?days=7` | `{history: [{date, revenue}], forecast: [{date, revenue}], method: "linear_trend" or "insufficient_data", r2: float}` (bonus ML forecast) |
 | `GET /owner/audit?limit=100` | `[{id, ts, trace_id, actor, event_type, decision, reasons, payload}]` newest first (`payload` is the redacted payload) |
 | `GET /owner/audit/verify` | `{"ok": bool, "checked": int, "first_bad_id": str or null}` |
 | `GET /owner/alerts?limit=100` | `[{id, ts, trace_id, alert_type, severity, detail}]` newest first |
