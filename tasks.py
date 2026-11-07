@@ -8,8 +8,9 @@ TASKS = {
     "run": [[sys.executable, "-m", "uvicorn", "app.main:app", "--reload"]],
     "dashboard": [[sys.executable, "-m", "streamlit", "run", "dashboard/app.py"]],
     "test": [[sys.executable, "-m", "pytest", "-q"]],
+    "eval": [[sys.executable, "scripts/run_evals.py"]],
 }
-NOT_IMPLEMENTED = {"eval", "demo"}
+NOT_IMPLEMENTED = {"demo"}
 
 
 def main() -> int:
