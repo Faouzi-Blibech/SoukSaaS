@@ -143,22 +143,25 @@ def _seed_alerts(s: Session) -> None:
                         detail="Prompt injection attempt (seeded)"))
 
 
+QA_IDS = ["qa_price", "qa_features", "qa_schedule", "qa_refund", "qa_prerequisites",
+          "qa_certificate", "qa_audience", "qa_plans", "qa_contact"]
+
+
 def _seed_qa(s: Session, product: Product) -> None:
-    pol = product.policies
-    plans = " / ".join(f"{p.name}: {p.price:g} {product.currency}" for p in product.plans)
-    entries = [
-        ("Is there a refund policy?",
-         ["Can I get my money back?", "Quelle est la politique de remboursement ?"], pol.refund),
-        ("Do I need prior experience?",
-         ["What are the prerequisites?", "Faut-il des prerequis ?"], pol.prerequisites),
-        ("When do the sessions take place?",
-         ["What is the schedule?", "Quels sont les horaires ?"], pol.schedule),
-        ("Do I get a certificate?",
-         ["Is there a certificate?", "Y a-t-il un certificat ?"], pol.certificate),
-        ("How much does it cost?", ["What is the price?", "Quel est le prix ?"], f"{plans}."),
-    ]
-    for i, (q, variants, a) in enumerate(entries):
-        s.add(QAEntry(id=f"qa{i:03d}", question=q, variants=variants, answer=a, status="approved"))
+    """Approved Q&A built by the mock generator (deterministic ids, stable across runs)."""
+    from app.config import settings
+    from app.services import qa
+
+    mode, settings.llm_mode = settings.llm_mode, "mock"
+    try:
+        drafts = qa.generate_qa(product)
+    finally:
+        settings.llm_mode = mode
+    for i, e in enumerate(drafts):
+        e.id = QA_IDS[i] if i < len(QA_IDS) else f"qa_extra{i}"
+        e.status = "approved"
+        s.add(e)
+    qa.invalidate()
 
 
 def counts(eng: Engine) -> dict[str, int]:

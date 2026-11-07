@@ -29,7 +29,8 @@ uv run python tasks.py dashboard  # Streamlit owner console
 | S0 | Scaffolding, models, schemas, seed, tasks.py | done | #1 |
 | SD | ARCHITECTURE.md, SECURITY.md, attacks.jsonl, Jinja templates | done | #2 |
 | S3 | Streamlit owner console (7 pages) vs owner API contract | done | #3 |
-| S2 | `app/llm.py`, `services/qa.py`, `payments_sandbox.py`, `analytics.py` | tests pass; fixing seeded FR Q&A + one false positive | - |
+| SH | AGENTS.md + this file | done | #4 |
+| S2 | `app/llm.py`, `services/qa.py`, `payments_sandbox.py`, `analytics.py`; seed Q&A from `generate_qa` (ids qa_price, qa_features, qa_schedule, qa_refund, qa_prerequisites, qa_certificate, qa_audience, qa_plans, qa_contact) | done | #5 |
 | S1 | `app/audit.py`, `permissions.py`, `gateway/` (filters, classifier, fraud) | in progress | - |
 | S3b | Futuristic dashboard redesign (three.js agent network, HUD theme, mock owner API in `tests/fixtures/`) | in progress | - |
 | S4 | `orchestrator.py`, `agents/base.py`, `agents/sales.py`, `agents/payment.py`, `routers/public.py`, `routers/owner.py`, wire `main.py`, integration tests | blocked on S1+S2 | - |
@@ -63,6 +64,6 @@ See `docs/DECISIONS.md`. Plus: PRs are stacked (`step/<n>-<name>`, each based on
 branch) and never merged by the agent; the repo owner merges in order.
 
 ## 7. Known issues
-- Q&A TF-IDF threshold 0.40 (`app/services/qa.py`); embeddings path untested (optional extra).
+- Q&A TF-IDF threshold 0.37 (`app/services/qa.py`), narrow margin: worst off-topic 0.34 vs weakest paraphrase 0.39. Embeddings path untested (optional extra).
 - Dashboard `eval_results.json` shape fixed in API_CONTRACT.md section 5; S6 must write exactly that.
 - Browser JS of the chat widget not yet exercised (done in S7 end-to-end check).
