@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db import init_db
+from app.routers import owner, public
 
 
 @asynccontextmanager
@@ -18,6 +19,8 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    application.include_router(public.router)
+    application.include_router(owner.router)
     return application
 
 

@@ -29,20 +29,27 @@ uv run python tasks.py dashboard  # Streamlit owner console
 | S0 | Scaffolding, models, schemas, seed, tasks.py | done | #1 |
 | SD | ARCHITECTURE.md, SECURITY.md, attacks.jsonl, Jinja templates | done | #2 |
 | S3 | Streamlit owner console (7 pages) vs owner API contract | done | #3 |
-| SH | AGENTS.md + this file | done | #4 |
-| S2 | `app/llm.py`, `services/qa.py`, `payments_sandbox.py`, `analytics.py`; seed Q&A from `generate_qa` (ids qa_price, qa_features, qa_schedule, qa_refund, qa_prerequisites, qa_certificate, qa_audience, qa_plans, qa_contact) | done | #5 |
-| S1 | `app/audit.py`, `permissions.py`, `gateway/` (filters, classifier, fraud) | in progress | - |
-| S3b | Futuristic dashboard redesign (three.js agent network, HUD theme, mock owner API in `tests/fixtures/`) | in progress | - |
-| S4 | `orchestrator.py`, `agents/base.py`, `agents/sales.py`, `agents/payment.py`, `routers/public.py`, `routers/owner.py`, wire `main.py`, integration tests | blocked on S1+S2 | - |
-| S5 | `agents/insights.py` (analyze + opportunities), `services/outreach.py`, owner endpoints for them | blocked on S4 | - |
-| S6 | `scripts/run_evals.py`, `tests/evals/qa_questions.jsonl`, `/owner/simulate`, `make demo`, failure-injection tests, eval results into SECURITY.md | blocked on S4+S5 | - |
-| S7 | README, pitch outline (`docs/PITCH.md`), revenue forecast bonus, final end-to-end browser check, review pass | blocked on S6 | - |
+| SH | AGENTS.md + this file | done | #4, #7 |
+| S2 | `app/llm.py`, `services/qa.py`, `payments_sandbox.py`, `analytics.py`; seed Q&A ids qa_price, qa_features, qa_schedule, qa_refund, qa_prerequisites, qa_certificate, qa_audience, qa_plans, qa_contact | done | #6, #7 |
+| S1 | `app/audit.py`, `permissions.py`, `gateway/` (filters, classifier, fraud) | done | #8 |
+| S7a | README, `docs/PITCH.md` (FR), `analytics.forecast_revenue` | done | #9 |
+| S6a | `scripts/run_evals.py`, `tests/evals/qa_questions.jsonl`, eval results in SECURITY.md | done | #10 |
+| S5a | `app/services/insights.py`, `outreach.py` (logic only) | done | #11 |
+| S3b | Futuristic dashboard (three.js agent network, HUD theme, `tests/fixtures/mock_owner_api.py`) | done | see PR list |
+| S4 | Orchestrator, agents (base, sales, payment), public + owner routers, integration tests | done | see PR list |
+| S2b | Q&A matcher fix (ambiguity guard, word+char scoring, richer variants) | done | see PR list |
+| W | Wiring: `app/agents/insights.py` wrapper, owner endpoints insights/run, recommendations, drafts, mark_sent (dedupe drafts per lead), `/owner/simulate` (demo + attack), `python tasks.py demo`, dashboard actor-name check against real backend | next | - |
+| F | Final: end-to-end browser check (product page chat + pay, dashboard on real backend), review pass, PITCH numbers | after W | - |
 
 ## 4. Next actions (in order)
-1. Finish S1 and S2, verify, open their PRs.
-2. S4: the core workflow. Must follow `docs/API_CONTRACT.md` sections 2-4 exactly (the dashboard and
-   chat widget already call those shapes). Render `GET /` with `product=Product.model_dump()`.
-3. S5, then S6, then S7 (see table).
+1. W (wiring step above). Owner endpoints currently return 501 for insights/recommendations/drafts/simulate.
+2. F (final checks).
+3. Optional: held-out Q&A question set (current 100% is optimistic, see docs/SECURITY.md).
+
+## Dev tips
+- Dashboard without backend: `uv run uvicorn tests.fixtures.mock_owner_api:app --port 8001`, then
+  `API_URL=http://127.0.0.1:8001 uv run streamlit run dashboard/app.py`.
+- Delete `data/app.db` and reseed after model changes.
 
 ## 5. Cahier (brief) coverage and gaps
 Covered by the spec: 6 agent roles (Customer Intelligence + Business Strategy merged into the Insights
