@@ -54,3 +54,6 @@ All responses JSON. Timestamps ISO 8601.
 | `POST /api/chat` | `ChatRequest` | `{reply, source, interest_level, blocked: bool, trace_id}` |
 | `POST /api/pay` | `PayRequest` (extra fields -> 422) | `{status, message, payment_id, trace_id}` |
 | `POST /api/rating` | `RatingRequest` | `{ok: true}` |
+
+## 4. Template rendering
+`GET /` renders `product_page.html` with `product=Product.model_dump()` (a dict; `policies` must be iterable with `.items()`).
