@@ -57,3 +57,15 @@ All responses JSON. Timestamps ISO 8601.
 
 ## 4. Template rendering
 `GET /` renders `product_page.html` with `product=Product.model_dump()` (a dict; `policies` must be iterable with `.items()`).
+
+## 5. `data/eval_results.json` (written by `scripts/run_evals.py`, read by the dashboard)
+```json
+{
+  "run_at": "ISO 8601", "llm_mode": "mock",
+  "qa": {"total": 12, "accuracy": 0.83, "refusal_rate": 1.0,
+         "details": [{"id": "q01", "question": "...", "expected": "qa_x", "got": "qa_x", "score": 0.81, "ok": true}]},
+  "attacks": {"total": 15, "blocked": 14,
+              "details": [{"id": "atk_01", "channel": "chat", "expected": "block", "got": "block", "layer": "filters", "ok": true}]}
+}
+```
+Rates are fractions 0..1. Outreach draft status after the owner copies it: `sent_manually`.
