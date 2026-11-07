@@ -19,7 +19,9 @@ Keep token use low: read `PROGRESS.md` first, then only the spec sections your t
 7. No emojis in code, UI or docs.
 
 ## Workflow
-- One step = one branch `step/<n>-<name>` based on the previous step branch, one PR, stacked.
+- One step = one branch `step/<n>-<name>`, one PR, always targeting `main` (not stacked: stacked PRs
+  merged out of order left commits stranded on step branches, see PR #7).
+- Parallel work: each worker owns a disjoint set of files; shared shapes live in docs/API_CONTRACT.md.
 - Before opening a PR: `uv run pytest -q` and `uv run ruff check .` must pass; put the commands and
   results in the PR body.
 - After each step, update the step table and next actions in `PROGRESS.md` in the same PR.
