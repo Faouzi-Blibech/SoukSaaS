@@ -109,6 +109,8 @@ class AuditEvent(SQLModel, table=True):
     event_type: str
     decision: str | None = None
     reasons_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    seq: int = Field(default=0, index=True, unique=True)  # deterministic chain order (app/audit.py)
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON))  # redacted; part of the hash
     payload_hash: str = ""
     prev_hash: str = ""
     hash: str = ""
