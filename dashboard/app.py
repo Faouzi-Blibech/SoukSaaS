@@ -10,13 +10,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import streamlit as st
 
 from dashboard import (
+    api,
     page_approvals,
     page_feed,
     page_insights,
     page_overview,
     page_qa,
     page_security,
+    theme,
 )
+from dashboard.common import quiet
 
 PAGES = {
     "Overview": page_overview.render,
@@ -29,11 +32,29 @@ PAGES = {
 }
 
 
+@st.cache_data(ttl=8, show_spinner=False)
+def _link_state() -> str:
+    ver = quiet(api.get, "/owner/audit/verify")
+    if ver is None:
+        return "offline"
+    return "chain ok" if ver.get("ok") else "chain broken"
+
+
+def _sidebar() -> str:
+    st.sidebar.html('<div class="sc-brand"><b>Souk<span>SaaS</span></b><div>Owner console</div></div>')
+    choice = st.sidebar.radio("Page", list(PAGES), label_visibility="collapsed")
+    state = _link_state()
+    kind = "ok" if state == "chain ok" else "bad"
+    st.sidebar.html(
+        f'<div class="sc-side-foot">{theme.pill(state, kind)}<br>{theme.esc(api.base_url())}</div>'
+    )
+    return choice
+
+
 def main() -> None:
     st.set_page_config(page_title="SoukSaaS owner console", layout="wide")
-    st.sidebar.title("SoukSaaS")
-    choice = st.sidebar.radio("Page", list(PAGES))
-    PAGES[choice]()
+    theme.inject_css()
+    PAGES[_sidebar()]()
 
 
 main()

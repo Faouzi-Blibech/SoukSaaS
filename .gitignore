@@ -223,3 +223,4 @@ __marimo__/
 .env
 data/app.db
 data/eval_results.json
+.gstack/
