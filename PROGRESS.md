@@ -1,6 +1,6 @@
 # PROGRESS / HANDOFF
 
-> **RESUME HERE:** read section 0 below first.
+> **RESUME HERE:** new to the project? Read `docs/HANDOFF.md` first, then section 0 below.
 
 Single source of truth for where the project stands. Updated after every step.
 Anyone continuing (Claude Code, OpenCode, a human): read `AGENTS.md`, then this file, then only the
