@@ -124,10 +124,12 @@ class Orchestrator:
 def build_orchestrator(session: Session, *, timeout_s: float | None = None,
                        retries: int | None = None) -> Orchestrator:
     """Per-request orchestrator with the core agents registered."""
+    from app.agents.insights import InsightsAgent
     from app.agents.payment import PaymentAgent
     from app.agents.sales import SalesAgent
 
     orch = Orchestrator(session, timeout_s=timeout_s, retries=retries)
     orch.register(SalesAgent(session, orch.gateway))
     orch.register(PaymentAgent(session, orch.gateway))
+    orch.register(InsightsAgent(session, orch.gateway))
     return orch

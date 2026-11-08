@@ -143,6 +143,9 @@ def opportunities(session: Session, product=None, top_k: int = 5, *,
     leads = list(session.exec(select(Lead).where(Lead.consent == True)))
     scored = sorted(((outreach.score_lead(lead.interest, lead.source, keywords), lead) for lead in leads),
                     key=lambda t: (-t[0], t[1].id))[:top_k]
+    # Dedupe: a lead that already has an unsent draft does not get a second one.
+    open_leads = set(session.exec(select(OutreachDraft.lead_id).where(OutreachDraft.status == "draft")))
+    scored = [(sc, lead) for sc, lead in scored if lead.id not in open_leads]
     view = {lead.id: (outreach.safe_name(lead.first_name), outreach.safe_interest(lead.interest), sc, lead)
             for sc, lead in scored}
 
