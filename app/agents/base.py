@@ -1,4 +1,5 @@
 """Base class for agents: identity, tool allow-list, and the gateway-gated tool helper."""
+import copy
 from typing import Any, ClassVar
 
 from sqlmodel import Session
@@ -20,6 +21,9 @@ class BaseAgent:
     name: str = "agent"
     # Returned (as payload) by the orchestrator if handle() times out or raises on every attempt.
     fallback_payload: ClassVar[dict[str, Any]] = {"reply": "Sorry, something went wrong. Please retry."}
+    # Message types whose handler can safely run twice (no rows written, no money moved). The orchestrator
+    # retries ONLY these; everything else runs exactly once, even after a timeout.
+    idempotent_types: ClassVar[frozenset[str]] = frozenset()
 
     def __init__(self, name: str, allowed_tools: frozenset[str] | set[str] | tuple[str, ...],
                  session: Session, gateway: SecurityGateway | None = None, orchestrator: Any = None):
@@ -28,6 +32,13 @@ class BaseAgent:
         self.session = session
         self.gateway = gateway or SecurityGateway(session)
         self.orchestrator = orchestrator
+
+    def bind(self, session: Session) -> "BaseAgent":
+        """A copy of this agent working on `session` (one DB session per attempt, never shared across threads)."""
+        clone = copy.copy(self)
+        clone.session = session
+        clone.gateway = SecurityGateway(session)
+        return clone
 
     def ctx(self, msg: AgentMessage, **extra: Any) -> Ctx:
         """Gateway context with this agent as the actor (the permission matrix keys on it)."""

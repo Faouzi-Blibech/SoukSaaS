@@ -1,14 +1,16 @@
 """Payment Agent (spec 6.3): verify plan/amount against product.json, gateway-check `payment.create`,
 hold for human approval when escalated, otherwise call the sandbox. Plus owner approve/reject."""
+import re
 from typing import Any, ClassVar
 
-from sqlmodel import Session
+from sqlalchemy import update
+from sqlmodel import Session, select
 
 from app import audit, llm
 from app.agents.base import BaseAgent, ToolRefused
 from app.gateway import SecurityGateway
 from app.models import ApprovalRequest, Payment, utcnow
-from app.schemas import AgentMessage, Product
+from app.schemas import TEST_TOKEN_PATTERN, AgentMessage, Product
 from app.services import payments_sandbox
 
 TOOLS = ("product.read", "payment.create", "payment.read", "approval.create")
@@ -49,12 +51,22 @@ class PaymentAgent(BaseAgent):
             return self._result(msg, "rejected", None, "Unknown plan.")
         if not token:  # chat-side intent only: nothing to charge yet
             return self._result(msg, "awaiting_token", None)
+        if not isinstance(token, str) or not re.fullmatch(TEST_TOKEN_PATTERN, token):
+            # Never persist (or echo) unvalidated input: it could be a real card number.
+            self._audit(msg, "payment_rejected", None, ["invalid_test_token"], {"plan_id": plan.id})
+            return self._result(msg, "rejected", None, "Invalid test token.")
 
-        # Amount ALWAYS comes from product.json, never from the request.
-        pay = Payment(prospect_id=prospect_id, plan_id=plan.id, amount=plan.price, currency=self.product.currency,
-                      status="created", test_token=str(token)[:64], trace_id=msg.trace_id)
-        self.session.add(pay)
-        self.session.commit()
+        # Idempotency: one Payment per (trace_id, prospect, plan). A repeated/retried message finds the row.
+        pay = self._existing(msg, prospect_id, plan.id)
+        if pay is not None and pay.status != "created":
+            return self._result(msg, pay.status, pay.id)
+        if pay is None:
+            # Amount ALWAYS comes from product.json, never from the request.
+            pay = Payment(prospect_id=prospect_id, plan_id=plan.id, amount=plan.price,
+                          currency=self.product.currency, status="created", test_token=token,
+                          trace_id=msg.trace_id)
+            self.session.add(pay)
+            self.session.commit()
         args = {"prospect_id": prospect_id, "plan_id": plan.id, "amount": plan.price,
                 "currency": self.product.currency, "test_token": str(token), "payment_id": pay.id}
         if p.get("session_id"):
@@ -73,6 +85,13 @@ class PaymentAgent(BaseAgent):
         self._audit(msg, "payment_created", pay, [res.reason], {"status": pay.status, "amount": pay.amount})
         self._notify_insights(msg, pay)
         return self._result(msg, pay.status, pay.id)
+
+    def _existing(self, msg: AgentMessage, prospect_id: str, plan_id: str) -> Payment | None:
+        if not msg.trace_id:
+            return None
+        return self.session.exec(select(Payment).where(
+            Payment.trace_id == msg.trace_id, Payment.prospect_id == prospect_id,
+            Payment.plan_id == plan_id)).first()
 
     def _notify_insights(self, msg: AgentMessage, pay: Payment) -> None:
         """Spec 6.3 step 4: a settled payment is visible to Insights/Analytics in the live feed.
@@ -100,6 +119,7 @@ class PaymentAgent(BaseAgent):
         except ToolRefused:
             pay.status, pay.reasons = "rejected", [*reasons, "approval_unavailable"]
             self._save(pay)
+            self._audit(msg, "payment_hold_failed", pay, pay.reasons, {"amount": pay.amount})
             return self._result(msg, "rejected", pay.id, "The payment could not be queued for review.")
         self.session.add(ApprovalRequest(kind="payment", ref_id=pay.id, reasons=list(reasons), trace_id=msg.trace_id))
         self.session.commit()
@@ -130,16 +150,20 @@ def _pending(session: Session, approval_id: str) -> ApprovalRequest:
     return req
 
 
-def _decide(session: Session, req: ApprovalRequest, status: str) -> None:
-    req.status, req.decided_at = status, utcnow()
-    session.add(req)
+def _claim(session: Session, req: ApprovalRequest, status: str) -> None:
+    """Atomically move pending -> `status`. Only one concurrent decider wins; the other gets ApprovalStateError."""
+    res = session.execute(update(ApprovalRequest).where(
+        ApprovalRequest.id == req.id, ApprovalRequest.status == "pending").values(status=status, decided_at=utcnow()))
     session.commit()
+    if res.rowcount != 1:
+        raise ApprovalStateError(req.id)
     session.refresh(req)
 
 
 def approve(session: Session, approval_id: str) -> tuple[ApprovalRequest, Payment | None]:
     """Approve: for payments, run the sandbox with the stored test token and record the outcome."""
     req = _pending(session, approval_id)
+    _claim(session, req, "approved")  # before the charge: a second approve can never charge again
     pay = session.get(Payment, req.ref_id) if req.kind == "payment" and req.ref_id else None
     if pay is not None:
         res = payments_sandbox.charge(pay.prospect_id, pay.plan_id, pay.amount, pay.currency, pay.test_token or "")
@@ -147,7 +171,6 @@ def approve(session: Session, approval_id: str) -> tuple[ApprovalRequest, Paymen
         session.add(pay)
         session.commit()
         session.refresh(pay)
-    _decide(session, req, "approved")
     audit.log_event(session, trace_id=req.trace_id, actor="owner", event_type=f"{req.kind}_approved" if req.kind != "payment" else "payment_approved",
                     decision="approved", payload={"approval_id": req.id, "kind": req.kind, "payment_id": req.ref_id,
                                                   "status": pay.status if pay else None})
@@ -156,13 +179,13 @@ def approve(session: Session, approval_id: str) -> tuple[ApprovalRequest, Paymen
 
 def reject(session: Session, approval_id: str) -> tuple[ApprovalRequest, Payment | None]:
     req = _pending(session, approval_id)
+    _claim(session, req, "rejected")
     pay = session.get(Payment, req.ref_id) if req.kind == "payment" and req.ref_id else None
     if pay is not None:
         pay.status = "rejected"
         session.add(pay)
         session.commit()
         session.refresh(pay)
-    _decide(session, req, "rejected")
     audit.log_event(session, trace_id=req.trace_id, actor="owner", event_type=f"{req.kind}_rejected" if req.kind != "payment" else "payment_rejected",
                     decision="rejected", payload={"approval_id": req.id, "kind": req.kind, "payment_id": req.ref_id})
     return req, pay

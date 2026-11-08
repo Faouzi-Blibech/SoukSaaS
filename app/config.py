@@ -11,6 +11,9 @@ def _f(name: str, default: str) -> str:
     return os.getenv(name, default)
 
 
+DEFAULT_OWNER_TOKENS = ("", "change-me")
+
+
 class Settings(BaseModel):
     llm_mode: str = "mock"
     llm_model: str = "gpt-4o-mini"
@@ -45,8 +48,20 @@ class Settings(BaseModel):
     input_max_length: int = 1000
     classifier_low: float = 0.3
     classifier_high: float = 0.7
-    orchestrator_timeout_s: float = 10.0
+    # Agent handler budget. Must stay above the worst case of one LLM call (app/llm.py: 15 s timeout x 2
+    # attempts = 30 s) so live-mode handlers are not abandoned mid-call. Only idempotent handlers are
+    # retried (agents declare `idempotent_types`; the real agents write rows, so they run exactly once).
+    orchestrator_timeout_s: float = 45.0
     orchestrator_retries: int = 2
+
+
+def owner_token_is_default(cfg: Settings) -> bool:
+    return cfg.owner_token.strip() in DEFAULT_OWNER_TOKENS
+
+
+def owner_api_enabled(cfg: Settings) -> bool:
+    """The owner API refuses everything when the token is empty/default outside dev."""
+    return cfg.app_env.strip().lower() == "dev" or not owner_token_is_default(cfg)
 
 
 def load_settings() -> Settings:

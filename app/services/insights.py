@@ -102,8 +102,8 @@ def analyze(session: Session, n: int = 50, *,
     rows = _recent(session, n)
     kpis = get_kpis(session)
     known = {r.id for r in rows}
-    user = ("KPIs: " + kpis.model_dump_json() + "\nInteractions:\n<untrusted>"
-            + json.dumps(_anonymize(rows)) + "</untrusted>")
+    user = ("KPIs: " + kpis.model_dump_json() + "\nInteractions:\n"
+            + filters.wrap_untrusted(json.dumps(_anonymize(rows))))
     result = chat_json(SYSTEM_ANALYZE, user, InsightsAnalysis, task="insights_analyze",
                        mock=mock or (lambda: _mock_analysis(rows, kpis)))
     kept: list[RecommendationItem] = []
@@ -158,7 +158,7 @@ def opportunities(session: Session, product=None, top_k: int = 5, *,
                for lid, (n, i, sc, _) in view.items()]
     user = ("Product: " + json.dumps({"name": product.name, "tagline": product.tagline,
                                       "price": product.price, "currency": product.currency})
-            + "\nLeads:\n<untrusted>" + json.dumps(payload) + "</untrusted>")
+            + "\nLeads:\n" + filters.wrap_untrusted(json.dumps(payload)))
     result = chat_json(SYSTEM_OPPS, user, _Items, task="insights_opportunities", mock=mock or default)
     gateway = SecurityGateway(session)
     out: list[dict] = []
@@ -176,6 +176,8 @@ def opportunities(session: Session, product=None, top_k: int = 5, *,
                       decision=decision.action, reasons=decision.reasons, payload={"lead_id": lead.id})
             continue
         reason = filters.redact(filters.strip_markup(item.reason))[:300]
+        if not reason.strip() or gateway.check_output(reason, ctx).action != "allow":
+            reason = outreach.explain(interest, lead.source, sc)  # LLM text failed the output gate
         draft = OutreachDraft(lead_id=lead.id, score=sc, reason=reason, draft_message=message)
         session.add(draft)
         session.commit()

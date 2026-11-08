@@ -36,7 +36,8 @@ def get_kpis(session: Session) -> KPIs:
     rows = _prospect_interactions(session)
     interested = _interested_ids(rows)
     paid = _paid_ids(session)
-    conversion = len(paid) / len(interested) if interested else 0.0
+    converted = paid & interested  # a payer who never showed interest must not inflate the rate
+    conversion = len(converted) / len(interested) if interested else 0.0
 
     obj_ids: dict[str, list[str]] = defaultdict(list)
     for i in rows:
@@ -60,6 +61,7 @@ def get_kpis(session: Session) -> KPIs:
         interactions_count=len(rows),
         interested_prospects=len(interested),
         paid_prospects=len(paid),
+        converted_prospects=len(converted),
         conversion_rate=conversion,
         top_objections=objections,
         payments_by_status=by_status,

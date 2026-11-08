@@ -84,7 +84,7 @@ def test_outreach_consent_opt_out_dedupe_mark_sent(client, owner, db):
 
 
 # ---- agent failure: slow insights agent -------------------------------------------------------------
-def test_insights_timeout_is_retried_logged_and_workflow_continues(client, owner, db, monkeypatch):
+def test_insights_timeout_is_not_retried_logged_and_workflow_continues(client, owner, db, monkeypatch):
     calls = []
 
     def slow(session, n=50, **kw):
@@ -98,14 +98,14 @@ def test_insights_timeout_is_retried_logged_and_workflow_continues(client, owner
     res = client.post("/owner/insights/run?mode=analyze", headers=owner)
     assert res.status_code == 200 and res.json()["recommendations"] == []  # fallback, no crash
     err = events(db, "agent_error")
-    assert len(err) == 1 and err[0].payload["attempts"] == 2 and err[0].payload["recipient"] == "insights"
+    assert len(err) == 1 and err[0].payload["attempts"] == 1 and err[0].payload["recipient"] == "insights"
 
     # the rest of the workflow is unaffected
     assert chat(client, "How much does it cost?")["reply"]
     pay = client.post("/api/pay", json={"session_id": "after", "plan_id": "std", "test_token": "tok_success"})
     assert pay.json()["status"] == "succeeded"
     time.sleep(0.9)  # let abandoned workers finish before the fixture closes the connection
-    assert len(calls) == 2
+    assert len(calls) == 1  # a handler that writes rows is never re-run (no duplicate recommendations)
 
 
 # ---- simulator --------------------------------------------------------------------------------
@@ -137,6 +137,16 @@ def test_simulate_attack_decisions(client, owner):
     assert steps[-1]["result"]["audit_chain"]["ok"] is True
 
 
+def test_three_scene_actor_mapping():
+    from dashboard.three_scene import canonical_actor
+
+    assert canonical_actor("owner") == "orchestrator"
+    assert canonical_actor("sales", "gateway_block") == "gateway"
+    assert canonical_actor("insights", "permission_denied") == "gateway"
+    for a in ("orchestrator", "sales", "payment", "insights"):
+        assert canonical_actor(a, "agent_message") == a
+
+
 def test_generated_ids_never_look_like_card_numbers():
     import re
 
@@ -147,13 +157,3 @@ def test_generated_ids_never_look_like_card_numbers():
         i = new_id()
         assert max(map(len, re.findall(r"\d+", i)), default=0) < 13
         assert not filters.find_card_spans(i)
-
-
-def test_three_scene_actor_mapping():
-    from dashboard.three_scene import canonical_actor
-
-    assert canonical_actor("owner") == "orchestrator"
-    assert canonical_actor("sales", "gateway_block") == "gateway"
-    assert canonical_actor("insights", "permission_denied") == "gateway"
-    for a in ("orchestrator", "sales", "payment", "insights"):
-        assert canonical_actor(a, "agent_message") == a

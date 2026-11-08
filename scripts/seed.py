@@ -12,6 +12,7 @@ from sqlmodel import Session, SQLModel, select
 
 from app import db
 from app.models import (
+    ApprovalRequest,
     Interaction,
     Lead,
     Payment,
@@ -71,7 +72,7 @@ def seed(engine: Engine | None = None) -> dict[str, int]:
                                       created_at=BASE_TS + timedelta(hours=i)))
         s.add_all(prospects)
         _seed_interactions(s, prospects, rng)
-        _seed_payments(s, prospects)
+        _seed_payments(s, prospects, _interested_prospect_ids(s))
         _seed_leads(s, rng)
         _seed_alerts(s)
         _seed_qa(s, product)
@@ -95,35 +96,61 @@ def _seed_interactions(s: Session, prospects: list[Prospect], rng: random.Random
                           ts=ts + timedelta(seconds=3)))
 
 
-def _seed_payments(s: Session, prospects: list[Prospect]) -> None:
+def _interested_prospect_ids(s: Session) -> set[str]:
+    """Prospects with a medium/high interest message (same rule as analytics.INTERESTED_LEVELS)."""
+    s.flush()
+    rows = s.exec(select(Interaction).where(Interaction.role == "prospect")).all()
+    return {i.prospect_id for i in rows if i.interest_level in ("medium", "high") and i.prospect_id}
+
+
+def _seed_payments(s: Session, prospects: list[Prospect], interested: set[str]) -> None:
+    """30 payments. Payers come mostly from interested prospects (conversion ~55%); statuses are the ones
+    the code produces (an owner-approved payment ends `succeeded`, with an `approved` ApprovalRequest)."""
     n = 0
 
     def add(pid: str, plan: str, amount: float, status: str, token: str, risk: float,
-            reasons: list[str], ts: datetime) -> None:
+            reasons: list[str], ts: datetime) -> str:
         nonlocal n
-        s.add(Payment(id=f"pay{n:03d}", prospect_id=pid, plan_id=plan, amount=amount,
+        pay_id = f"pay{n:03d}"
+        s.add(Payment(id=pay_id, prospect_id=pid, plan_id=plan, amount=amount,
                       currency="TND", status=status, test_token=token, risk_score=risk,
                       reasons=reasons, trace_id=f"trp{n:03d}", created_at=ts))
         n += 1
+        return pay_id
 
+    def approval(pay_id: str, status: str, reasons: list[str], ts: datetime) -> None:
+        s.add(ApprovalRequest(id=f"apr{pay_id[3:]}", kind="payment", ref_id=pay_id, reasons=reasons,
+                              status=status, trace_id=f"trp{pay_id[3:]}", created_at=ts,
+                              decided_at=None if status == "pending" else ts + timedelta(hours=1)))
+
+    rejected_payer = prospects[39]  # disposable e-mail domain (i % 8 == 7)
+    pool = [p for p in prospects if p.id != rejected_payer.id]
+    hot = [p.id for p in pool if p.id in interested]
+    cold = [p.id for p in pool if p.id not in interested]
+    # 14 succeeded (9 interested + 5 not), 5 declined, 3 pending, then the burst and the large amounts
+    normal = ([(pid, "succeeded") for pid in hot[:9] + cold[:5]]
+              + [(pid, "declined") for pid in hot[9:12] + cold[5:7]]
+              + [(pid, "pending") for pid in hot[12:13] + cold[7:9]])
     tokens = {"succeeded": "tok_success", "declined": "tok_declined", "pending": "tok_pending"}
-    # 22 normal payments: 14 succeeded, 5 declined, 3 pending
-    for i in range(22):
-        status = "succeeded" if i < 14 else ("declined" if i < 19 else "pending")
-        add(prospects[i].id, "std", 250.0, status, tokens[status], 0.0, [],
-            BASE_TS + timedelta(days=1, hours=i))
-    # burst: one prospect, 5 attempts within 5 minutes
-    for k in range(5):
-        status = "declined" if k < 3 else "held_for_approval"
-        add(prospects[30].id, "std", 250.0, status, "tok_declined", 0.0 if k < 3 else 0.7,
-            ["burst_attempts"] if k >= 3 else [], BASE_TS + timedelta(days=2, minutes=k))
-    # large amounts (>= threshold): held, approved, rejected (30 total)
-    add(prospects[31].id, "pro", 450.0, "held_for_approval", "tok_success", 0.4,
-        ["amount_over_threshold"], BASE_TS + timedelta(days=3))
-    add(prospects[32].id, "pro", 450.0, "approved", "tok_success", 0.4,
-        ["amount_over_threshold"], BASE_TS + timedelta(days=3, hours=1))
-    add(prospects[39].id, "pro", 450.0, "rejected", "tok_success", 0.6,
-        ["amount_over_threshold", "disposable_email"], BASE_TS + timedelta(days=3, hours=2))
+    for i, (pid, status) in enumerate(normal):
+        add(pid, "std", 250.0, status, tokens[status], 0.0, [], BASE_TS + timedelta(days=1, hours=i))
+    burst_payer, big_held, big_ok = cold[9], cold[10], cold[11]
+    for k in range(5):  # burst: one prospect, 5 attempts within 5 minutes
+        ts = BASE_TS + timedelta(days=2, minutes=k)
+        held = k >= 3
+        pay_id = add(burst_payer, "std", 250.0, "held_for_approval" if held else "declined", "tok_declined",
+                     0.7 if held else 0.0, ["burst_attempts"] if held else [], ts)
+        if held:
+            approval(pay_id, "pending", ["burst_attempts"], ts)
+    ts = BASE_TS + timedelta(days=3)  # large amounts (>= threshold): held, owner-approved, rejected
+    approval(add(big_held, "pro", 450.0, "held_for_approval", "tok_success", 0.4, ["amount_over_threshold"], ts),
+             "pending", ["amount_over_threshold"], ts)
+    ts += timedelta(hours=1)
+    approval(add(big_ok, "pro", 450.0, "succeeded", "tok_success", 0.4, ["amount_over_threshold"], ts),
+             "approved", ["amount_over_threshold"], ts)
+    ts += timedelta(hours=1)
+    rej = ["amount_over_threshold", "disposable_email"]
+    approval(add(rejected_payer.id, "pro", 450.0, "rejected", "tok_success", 0.6, rej, ts), "rejected", rej, ts)
 
 
 def _seed_leads(s: Session, rng: random.Random) -> None:
