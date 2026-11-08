@@ -2,9 +2,11 @@
 // One segment per link in the hash chain. Signal blue when the chain verifies, alarm red from the
 // first bad link when it does not.
 const DATA = JSON.parse(document.getElementById("scene-data").textContent);
-const ACCENT = 0x46b4ff;
-const ALARM = 0xff5a36;
-const VOID = 0x06080b;
+const T = DATA.theme;
+const hex = (v) => parseInt(v.replace("#", ""), 16);
+const ACCENT = hex(T.accent);
+const ALARM = hex(T.alarm);
+const VOID = hex(T.bg);
 const stage = document.getElementById("stage");
 const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -38,11 +40,15 @@ async function start() {
   const camera = new THREE.PerspectiveCamera(38, w() / h(), 0.1, 50);
   camera.position.set(0, 3.4, 8.4);
   camera.lookAt(0, -0.7, 0);
+  camera.zoom = reduced ? 1 : 0.6;   // eased to 1 on load
+  camera.updateProjectionMatrix();
 
   const composer = new ec.EffectComposer(renderer);
   composer.setSize(w(), h());
   composer.addPass(new rp.RenderPass(scene, camera));
-  composer.addPass(new ub.UnrealBloomPass(new THREE.Vector2(w(), h()), 0.3, 0.3, 0.55));
+  if (T.bloom) {
+    composer.addPass(new ub.UnrealBloomPass(new THREE.Vector2(w(), h()), 0.3, 0.3, 0.55));
+  }
   composer.addPass(new op.OutputPass());
 
   const ok = !!DATA.ok;
@@ -57,7 +63,7 @@ async function start() {
     const a = (i / n) * Math.PI * 2;
     const flagged = !ok && i >= bad;
     const mat = new THREE.MeshBasicMaterial({
-      color: new THREE.Color(flagged ? ALARM : ACCENT).multiplyScalar(flagged ? 1.5 : 0.95) });
+      color: new THREE.Color(flagged ? ALARM : ACCENT).multiplyScalar(T.additive ? (flagged ? 1.5 : 0.95) : 1) });
     disposables.push(mat);
     const m = new THREE.Mesh(geo, mat);
     m.position.set(Math.cos(a) * 2.6, 0, Math.sin(a) * 2.6);
@@ -76,6 +82,10 @@ async function start() {
   const draw = () => {
     const t = clock.getElapsedTime();
     if (!reduced) {
+      if (t < 1.8) {
+        camera.zoom = 0.6 + 0.4 * (1 - Math.pow(1 - Math.min(1, t / 1.6), 3));
+        camera.updateProjectionMatrix();
+      }
       rig.rotation.y = t * 0.18;
       inner.rotation.y = -t * 0.3;
       inner.rotation.x = t * 0.12;

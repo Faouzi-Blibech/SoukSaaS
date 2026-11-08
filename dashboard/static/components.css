@@ -15,8 +15,8 @@
   padding: 0.18rem 0.6rem; border: 1px solid var(--line-hi); border-radius: 999px; color: var(--dim);
   white-space: nowrap; }
 .sc-pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.sc-pill.ok { color: var(--signal); border-color: rgba(70,180,255,.4); }
-.sc-pill.bad { color: var(--alarm); border-color: rgba(255,90,54,.5); }
+.sc-pill.ok { color: var(--signal-ink); border-color: rgba(var(--signal-rgb),.45); }
+.sc-pill.bad { color: var(--alarm-ink); border-color: rgba(var(--alarm-rgb),.55); }
 .sc-pill.plain::before { display: none; }
 
 /* KPI card */
@@ -28,7 +28,7 @@
 .sc-kpi .vl { font: 500 1.95rem/1.15 var(--mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
   margin-top: 0.25rem; color: var(--text); }
 .sc-kpi .vl small { font-size: 0.8rem; color: var(--dim); margin-left: 0.3rem; letter-spacing: 0; }
-.sc-kpi.alert .vl { color: var(--alarm); }
+.sc-kpi.alert .vl { color: var(--alarm-ink); }
 .sc-kpi .sb { color: var(--dim); font: 400 0.7rem var(--mono); margin-top: auto; padding-top: 0.45rem; }
 .sc-kpi .spark { position: absolute; right: 1rem; top: 2.1rem; display: flex; align-items: flex-end;
   gap: 2px; height: 30px; }
@@ -60,7 +60,7 @@
 .sc-kv b { display: block; font: 500 0.9rem var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
 .sc-chip { display: inline-block; font: 500 0.7rem var(--mono); border: 1px solid var(--line-hi); color: var(--dim);
   padding: 0.1rem 0.45rem; border-radius: 2px; margin-right: 0.35rem; }
-.sc-chip.hi { color: var(--signal); border-color: rgba(70,180,255,.45); }
+.sc-chip.hi { color: var(--signal-ink); border-color: rgba(var(--signal-rgb),.45); }
 
 /* tables */
 .sc-tablewrap { border: 1px solid var(--line); border-radius: 2px; background: var(--panel); max-height: 620px; overflow: auto; }
@@ -72,14 +72,15 @@
 .sc-table td.r { color: var(--dim); max-width: 46ch; }
 .sc-table tr:hover td { background: var(--panel-hi); }
 .sc-table tr.flag td:first-child { box-shadow: inset 2px 0 0 var(--alarm); }
-.sc-table tr.flag td { background: rgba(255,90,54,.05); }
-.dec-block, .dec-escalate { color: var(--alarm); font-family: var(--mono); font-weight: 500; }
-.dec-allow, .dec-approve, .dec-ok { color: var(--signal); font-family: var(--mono); }
+.sc-table tr.flag td { background: rgba(var(--alarm-rgb),.06); }
+.dec-block, .dec-escalate { color: var(--alarm-ink); font-family: var(--mono); font-weight: 500; }
+.dec-allow, .dec-approve, .dec-ok { color: var(--signal-ink); font-family: var(--mono); }
 
 /* sidebar brand + status */
 .sc-brand { padding: 0.9rem 0.9rem 1rem; border-bottom: 1px solid var(--line); margin-bottom: 0.6rem; }
 .sc-brand b { font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; }
-.sc-brand b span { color: var(--signal); }
+.sc-brand b span { color: var(--signal-ink); }
 .sc-brand div { color: var(--dim); font-size: 0.75rem; margin-top: 0.15rem; }
 .sc-side-foot { padding: 1rem 0.9rem; border-top: 1px solid var(--line); margin-top: 1.4rem; color: var(--dim);
   font: 400 0.72rem var(--mono); line-height: 1.7; word-break: break-all; }
+.sc-brand b { color: var(--text); }

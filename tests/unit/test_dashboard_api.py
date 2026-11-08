@@ -57,3 +57,38 @@ def test_pages_render_with_backend_down(monkeypatch):
         at.sidebar.radio[0].set_value(page).run()
         assert not at.exception, page
     assert at.error
+
+
+def _contrast(a: str, b: str) -> float:
+    def lum(h: str) -> float:
+        c = [int(h.lstrip("#")[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+        c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def test_text_tokens_meet_wcag_aa_in_both_themes():
+    from dashboard.palette import PALETTES
+
+    for mode, p in PALETTES.items():
+        for surface in ("void", "panel", "panel_hi"):
+            for ink in ("text", "dim", "signal_ink", "alarm_ink"):
+                assert _contrast(p[ink], p[surface]) >= 4.5, (mode, ink, surface)
+        assert _contrast(p["on_signal"], p["signal"]) >= 4.5, mode
+
+
+def test_theme_toggle_follows_query_param_and_renders(monkeypatch):
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("API_URL", "http://127.0.0.1:1")
+    path = str(Path(__file__).resolve().parents[2] / "dashboard" / "app.py")
+    at = AppTest.from_file(path, default_timeout=30)
+    at.query_params["theme"] = "light"
+    at.run()
+    assert not at.exception
+    assert at.sidebar.toggle[0].value is True
+    at.sidebar.toggle[0].set_value(False).run()
+    assert not at.exception
+    assert at.query_params["theme"] == ["dark"] or at.query_params["theme"] == "dark"

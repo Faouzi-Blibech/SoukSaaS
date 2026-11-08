@@ -95,7 +95,7 @@ def render() -> None:
     chain = [] if ver is None else [theme.pill("audit chain ok" if ver.get("ok") else "audit chain broken",
                                                "ok" if ver.get("ok") else "bad")]
     theme.page_head("Overview", "Mission control for the agent team. Rotate the network by dragging.", chain)
-    theme.embed_html(three_scene.agent_network_html(events, k), 500)
+    theme.embed_html(three_scene.agent_network_html(events, k, theme.mode()), 500)
     theme.section("Key figures")
     _kpis(k, events, None if approvals is None else len(approvals))
     _charts(k)
