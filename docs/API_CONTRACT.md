@@ -17,17 +17,21 @@ call_count: dict[str, int]                                # live+mock calls per 
   Each caller owns its own deterministic mock, so mocks can reflect the real input.
 - `LLM_MODE=live`: LiteLLM `completion(model=LLM_MODEL, api_key=LLM_API_KEY or OPENAI_API_KEY)`,
   `response_format={"type": "json_object"}` for `chat_json`, output validated with the schema.
-  One retry on invalid output, then `LLMError`. Timeout 20 s. Never log the key.
+  One retry on invalid output, then `LLMError`. Timeout 15 s per attempt (30 s worst case per call; the
+  orchestrator agent timeout is 45 s). Live mode without a key, or an auth error, fails at once with `LLMError` (no retry). Never log the key.
 - Task names: `sales_fallback`, `interest`, `qa_generate`, `injection_classifier`,
   `insights_analyze`, `insights_opportunities`, `kpi_narrative`.
 
 ## 2. Owner HTTP API (header `X-Owner-Token`, 401 if wrong)
 
+If `OWNER_TOKEN` is empty or `change-me` and `APP_ENV` is not `dev`, every owner call returns 401 (startup logs an error).
+An approval already decided returns 409; `POST /owner/qa/generate` returns 503 if the LLM is unavailable.
+
 All responses JSON. Timestamps ISO 8601.
 
 | Method + path | Response |
 |---|---|
-| `GET /owner/kpis` | `KPIs` schema (`app/schemas.py`) |
+| `GET /owner/kpis` | `KPIs` schema (`app/schemas.py`). `converted_prospects` = paid AND interested; `conversion_rate = converted_prospects / interested_prospects` (always <= 1); `paid_prospects` counts every payer |
 | `GET /owner/kpis/narrative` | `{"text": str}` |
 | `GET /owner/kpis/forecast?days=7` | `{history: [{date, revenue}], forecast: [{date, revenue}], method: "linear_trend" or "insufficient_data", r2: float}` (bonus ML forecast) |
 | `GET /owner/audit?limit=100` | `[{id, ts, trace_id, actor, event_type, decision, reasons, payload}]` newest first (`payload` is the redacted payload) |
@@ -52,8 +56,8 @@ All responses JSON. Timestamps ISO 8601.
 | Method + path | Body | Response |
 |---|---|---|
 | `GET /` | | product page HTML |
-| `POST /api/chat` | `ChatRequest` | `{reply, source, interest_level, blocked: bool, trace_id}` |
-| `POST /api/pay` | `PayRequest` (extra fields -> 422) | `{status, message, payment_id, trace_id}` |
+| `POST /api/chat` | `ChatRequest` (`session_id` matches `^[A-Za-z0-9_-]{1,64}$`, else 422) | `{reply, source, interest_level, blocked: bool, trace_id}` |
+| `POST /api/pay` | `PayRequest` (extra fields -> 422; `test_token` matches `^tok_[a-z0-9_]{1,32}$`, `session_id` as above) | `{status, message, payment_id, trace_id}` |
 | `POST /api/rating` | `RatingRequest` | `{ok: true}` |
 
 ## 4. Template rendering

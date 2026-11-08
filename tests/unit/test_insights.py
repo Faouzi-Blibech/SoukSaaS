@@ -119,3 +119,12 @@ def test_mark_sent(session):
 def test_no_send_function_exists():
     names = [n.lower() for m in (insights, outreach) for n in dir(m)]
     assert not [n for n in names if "send" in n.replace("mark_sent", "") or "email" in n]
+
+
+def test_llm_written_reason_must_pass_output_gate(session):
+    seed_leads(session)
+    out = insights.opportunities(session, None, mock=lambda: {"items": [
+        {"lead_id": "l1", "reason": "Great fit, details at https://evil.example/x",
+         "draft_message": "Hi Amine, we run a bootcamp. Reply STOP to opt out."}]})
+    assert len(out) == 1 and "evil.example" not in out[0]["reason"] and out[0]["reason"]
+    assert all("evil.example" not in d.reason for d in session.exec(select(OutreachDraft)))

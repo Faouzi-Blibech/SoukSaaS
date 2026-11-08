@@ -107,7 +107,24 @@ _P = [
     (r"تظاهر|تصرف كما لو|العب دور", 0.5, "roleplay"),
     (r"خصم\s*100\s*%|100\s*%\s*خصم|كود (?:سري|الادمن)|رمز (?:سري|الادمن)", 0.5, "discount_manipulation"),
 ]
+_P.append((r"<\s*/?\s*untrusted\s*>", 0.9, "delimiter_breakout"))  # forged data-wrapper tag
 INJECTION_PATTERNS = [(re.compile(rx), w, why) for rx, w, why in _P]
+_UNTRUSTED_TAG = re.compile(r"<\s*/?\s*untrusted\s*>", re.IGNORECASE)
+
+
+def strip_untrusted_tags(text: str) -> str:
+    """Remove every `<untrusted>` / `</untrusted>` tag (any case/spacing), repeatedly so nesting cannot rebuild one."""
+    text = strip_invisible(text)[0]
+    while True:
+        out = _UNTRUSTED_TAG.sub("", text)
+        if out == text:
+            return out
+        text = out
+
+
+def wrap_untrusted(text: str) -> str:
+    """The only way untrusted text enters an LLM prompt: the wrapper tags are ours, never the user's."""
+    return f"<untrusted>{strip_untrusted_tags(text)}</untrusted>"
 _B64 = re.compile(r"(?<![A-Za-z0-9+/=])[A-Za-z0-9+/]{24,}={0,2}(?![A-Za-z0-9+/=])")
 _SPACED = re.compile(r"(?:\b\w\s){5,}\w\b")
 

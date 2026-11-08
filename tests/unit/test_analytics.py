@@ -44,6 +44,7 @@ def data(session):
         _pay("p3", "B", "declined", 250, 2),
         _pay("p4", "C", "held_for_approval", 450, 3),
         _pay("p5", "B", "succeeded", 250, 3),
+        _pay("p6", "D", "succeeded", 250, 4),  # paid but never showed interest: not a conversion
         SecurityAlert(id="a1", alert_type="injection"),
         SecurityAlert(id="a2", alert_type="injection"),
         SecurityAlert(id="a3", alert_type="fraud"),
@@ -57,13 +58,14 @@ def test_exact_kpis(session, data):
     k = analytics.get_kpis(session)
     assert k.interactions_count == 6  # prospect-role only
     assert k.interested_prospects == 3  # A, B, anon (C is low)
-    assert k.paid_prospects == 2  # A, B
-    assert k.conversion_rate == pytest.approx(2 / 3)
+    assert k.paid_prospects == 3  # A, B, D
+    assert k.converted_prospects == 2  # paid AND interested: A, B (D is not counted)
+    assert k.conversion_rate == pytest.approx(2 / 3) and k.conversion_rate <= 1.0
     top = k.top_objections
     assert [(o.label, o.count) for o in top] == [("price", 3), ("schedule", 1), ("trust", 1)]
     assert top[0].example_interaction_ids == ["i1", "i2", "i4"]
-    assert k.payments_by_status == {"succeeded": 3, "declined": 1, "held_for_approval": 1}
-    assert k.simulated_revenue == 950.0
+    assert k.payments_by_status == {"succeeded": 4, "declined": 1, "held_for_approval": 1}
+    assert k.simulated_revenue == 1200.0
     assert k.satisfaction_avg == 3.5
     assert k.security_alerts_count == 3
     assert k.security_alerts_by_type == {"injection": 2, "fraud": 1}
@@ -77,9 +79,10 @@ def test_empty_db_is_safe(session):
 
 def test_revenue_and_funnel(session, data):
     assert analytics.revenue_over_time(session) == [
-        {"date": "2026-01-01", "revenue": 700.0}, {"date": "2026-01-03", "revenue": 250.0}]
+        {"date": "2026-01-01", "revenue": 700.0}, {"date": "2026-01-03", "revenue": 250.0},
+        {"date": "2026-01-04", "revenue": 250.0}]
     assert analytics.funnel(session) == {"interactions": 6, "interested": 3,
-                                         "payment_attempts": 3, "paid": 2}
+                                         "payment_attempts": 4, "paid": 3}
 
 
 def test_narrative_mock_is_deterministic(session, data):
@@ -115,3 +118,13 @@ def test_forecast_clamped_non_negative(session):
     out = analytics.forecast_revenue(session, days_ahead=5)
     assert all(f["revenue"] >= 0 for f in out["forecast"])
     assert out["forecast"][-1]["revenue"] == 0.0
+
+
+def test_conversion_never_exceeds_one_when_payers_are_not_interested(session):
+    session.add_all([_i("i1", pid="A", sid="sa", level="high"),
+                     _pay("p1", "A", "succeeded", 250, 1),
+                     _pay("p2", "X", "succeeded", 250, 1), _pay("p3", "Y", "succeeded", 250, 1)])
+    session.commit()
+    k = analytics.get_kpis(session)
+    assert (k.interested_prospects, k.paid_prospects, k.converted_prospects) == (1, 3, 1)
+    assert k.conversion_rate == 1.0

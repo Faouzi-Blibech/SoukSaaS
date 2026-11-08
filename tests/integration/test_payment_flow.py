@@ -1,8 +1,17 @@
+import logging
+import time
+
 import pytest
 from sqlmodel import select
 
 from app import audit
+from app.agents import payment as payment_agent
+from app.agents.base import ToolRefused
+from app.agents.payment import PaymentAgent
+from app.config import settings
 from app.models import ApprovalRequest, AuditEvent, Payment
+from app.schemas import AgentMessage, Decision
+from app.services import payments_sandbox
 
 
 def pay(client, plan="std", token="tok_success", sid="pay1"):
@@ -51,10 +60,12 @@ def test_extra_fields_rejected_with_422(client, extra):
 
 def test_unknown_plan_and_malformed_token_rejected(client, db):
     assert pay(client, plan="platinum")["status"] == "rejected"
-    out = pay(client, token="4242 4242 4242 4242")
-    assert out["status"] == "rejected"
     assert "payment_rejected" in event_types(db)
-    assert "4242 4242 4242 4242" not in str([e.payload for e in db.exec(select(AuditEvent))])
+    # a card number as test_token is refused at the API boundary (422) and stored nowhere
+    r = client.post("/api/pay", json={"session_id": "pay1", "plan_id": "std", "test_token": "4242 4242 4242 4242"})
+    assert r.status_code == 422
+    assert "4242" not in str([e.payload for e in db.exec(select(AuditEvent))])
+    assert "4242" not in str([p.test_token for p in db.exec(select(Payment))])
 
 
 def test_pro_plan_held_then_approved_by_owner(client, owner, db):
@@ -144,3 +155,136 @@ def test_escalation_approvals_have_no_payment(client, owner, db):
     assert item["kind"] == "escalation" and item["payment"] is None
     approved = client.post(f"/owner/approvals/{item['id']}/approve", headers=owner).json()
     assert approved["payment"] is None and approved["approval"]["status"] == "approved"
+
+
+# ---- review fixes: double charge, raw card tokens, approve race, audit gaps ----------------------
+def _pay_msg(token="tok_success", trace="t-idem"):
+    return AgentMessage(trace_id=trace, sender="orchestrator", recipient="payment", type="payment_request",
+                        payload={"prospect_id": "pr1", "plan_id": "std", "test_token": token,
+                                 "session_id": "s1"})
+
+
+def test_slow_payment_past_timeout_is_charged_once(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "orchestrator_timeout_s", 0.2)
+    real = payments_sandbox.charge
+    monkeypatch.setattr(payments_sandbox, "charge", lambda *a, **k: (time.sleep(0.6), real(*a, **k))[1])
+    out = pay(client, sid="slow1")
+    assert out["status"] == "error"  # timed out: fallback reply, not a retry
+    time.sleep(1.0)  # abandoned worker finishes
+    db.expire_all()
+    assert len(db.exec(select(Payment)).all()) == 1
+
+
+def test_same_message_twice_creates_one_payment_and_one_charge(db, monkeypatch):
+    calls = []
+    real = payments_sandbox.charge
+    monkeypatch.setattr(payments_sandbox, "charge", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    agent = PaymentAgent(db)
+    first, second = agent.handle(_pay_msg()), agent.handle(_pay_msg())
+    assert first.payload["payment_id"] == second.payload["payment_id"]
+    assert first.payload["status"] == second.payload["status"] == "succeeded"
+    assert len(db.exec(select(Payment)).all()) == 1 and len(calls) == 1
+
+
+@pytest.mark.parametrize("token", ["4111 1111 1111 1111", "4111111111111111", "tok_" + "a" * 40,
+                                   "TOK_success", "tok success", "", "x" * 300])
+def test_bad_test_token_is_422_and_never_stored(client, db, token):
+    r = client.post("/api/pay", json={"session_id": "s", "plan_id": "std", "test_token": token})
+    assert r.status_code == 422
+    assert not db.exec(select(Payment)).all()
+
+
+def test_agent_does_not_persist_unvalidated_token(db):
+    out = PaymentAgent(db).handle(_pay_msg(token="4111 1111 1111 1111"))
+    assert out.payload["status"] == "rejected"
+    assert not db.exec(select(Payment)).all()
+    assert "4111" not in repr([e.payload for e in db.exec(select(AuditEvent))])
+
+
+def test_approve_race_second_decider_gets_409_and_no_double_charge(client, owner, db, monkeypatch):
+    out = pay(client, plan="pro", sid="race1")
+    assert out["status"] == "held_for_approval"
+    item = client.get("/owner/approvals", headers=owner).json()[0]
+    # A concurrent request already decided it, but this request read the row while still pending.
+    real_pending = payment_agent._pending
+    stale = real_pending(db, item["id"])
+    db.expunge(stale)
+    assert client.post(f"/owner/approvals/{item['id']}/reject", headers=owner).status_code == 200
+    monkeypatch.setattr(payment_agent, "_pending", lambda s, i: stale)
+    charges = []
+    monkeypatch.setattr(payments_sandbox, "charge", lambda *a, **k: charges.append(1))
+    res = client.post(f"/owner/approvals/{item['id']}/approve", headers=owner)
+    assert res.status_code == 409 and not charges
+    db.expire_all()
+    assert db.get(Payment, out["payment_id"]).status == "rejected"
+
+
+def test_hold_failure_is_audited(db, monkeypatch):
+    agent = PaymentAgent(db)
+    real_use_tool = agent.use_tool
+
+    def use_tool(tool, args, ctx, **kw):
+        if tool == "approval.create":
+            raise ToolRefused(tool, Decision(action="block", reasons=["denied"], risk=1.0))
+        return real_use_tool(tool, args, ctx, **kw)
+
+    monkeypatch.setattr(agent, "use_tool", use_tool)
+    monkeypatch.setattr(settings, "payment_approval_threshold", 1.0)
+    out = agent.handle(_pay_msg())
+    assert out.payload["status"] == "rejected"
+    evs = [e for e in db.exec(select(AuditEvent)) if e.event_type == "payment_hold_failed"]
+    assert len(evs) == 1 and "approval_unavailable" in evs[0].reasons_json
+
+
+def test_qa_reject_and_update_are_audited(client, owner, db):
+    eid = client.post("/owner/qa/generate", headers=owner).json()[0]["id"]
+    client.put(f"/owner/qa/{eid}", headers=owner, json={"question": "q?", "answer": "a", "variants": []})
+    client.post(f"/owner/qa/{eid}/reject", headers=owner)
+    types = event_types(db)
+    assert "qa_updated" in types and "qa_rejected" in types
+
+
+@pytest.mark.parametrize("env, token, status", [
+    ("prod", "change-me", 401), ("prod", "", 401), ("production", "change-me", 401),
+    ("dev", "", 401), ("dev", "change-me", 200), ("prod", "a-real-secret", 200),
+])
+def test_default_owner_token_rejected_outside_dev(client, monkeypatch, env, token, status):
+    monkeypatch.setattr(settings, "app_env", env)
+    monkeypatch.setattr(settings, "owner_token", token)
+    assert client.get("/owner/kpis", headers={"X-Owner-Token": token}).status_code == status
+
+
+@pytest.mark.parametrize("env, token, level, word", [
+    ("prod", "change-me", logging.ERROR, "OWNER_TOKEN"),
+    ("dev", "change-me", logging.WARNING, "OWNER_TOKEN"),
+    ("prod", "", logging.ERROR, "OWNER_TOKEN"),
+])
+def test_startup_warns_about_default_owner_token(caplog, monkeypatch, env, token, level, word):
+    from app.main import check_startup
+    monkeypatch.setattr(settings, "app_env", env)
+    monkeypatch.setattr(settings, "owner_token", token)
+    with caplog.at_level(logging.WARNING):
+        check_startup()
+    recs = [r for r in caplog.records if word in r.getMessage()]
+    assert recs and recs[0].levelno == level
+
+
+def test_startup_quiet_with_real_token(caplog, monkeypatch):
+    from app.main import check_startup
+    monkeypatch.setattr(settings, "app_env", "prod")
+    monkeypatch.setattr(settings, "owner_token", "a-real-secret")
+    with caplog.at_level(logging.WARNING):
+        check_startup()
+    assert not [r for r in caplog.records if "OWNER_TOKEN" in r.getMessage()]
+
+
+def test_generate_qa_llm_failure_is_503_not_500(client, owner, monkeypatch):
+    from app import llm
+    from app.services import qa
+
+    def boom(*a, **k):
+        raise llm.LLMError("LLM call failed for task qa_generate: Timeout")
+
+    monkeypatch.setattr(qa, "generate_qa", boom)
+    r = client.post("/owner/qa/generate", headers=owner)
+    assert r.status_code == 503 and "LLM" in r.json()["detail"]

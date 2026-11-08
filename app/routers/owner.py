@@ -11,8 +11,9 @@ from sqlmodel import Session, select
 from app import audit
 from app.agents import insights as insights_agent
 from app.agents import payment as payment_agent
-from app.config import settings
+from app.config import owner_api_enabled, settings
 from app.db import get_session
+from app.llm import LLMError
 from app.models import ApprovalRequest, AuditEvent, Payment, QAEntry, SecurityAlert
 from app.services import analytics, insights, qa, simulator
 
@@ -20,6 +21,8 @@ EVAL_PATH = Path(__file__).resolve().parents[2] / "data" / "eval_results.json"
 
 
 def require_owner(x_owner_token: str | None = Header(default=None)) -> None:
+    if not owner_api_enabled(settings):  # default/empty token outside dev: closed for everyone
+        raise HTTPException(status_code=401, detail="owner API disabled: set OWNER_TOKEN")
     if not x_owner_token or not hmac.compare_digest(x_owner_token.encode(), settings.owner_token.encode()):
         raise HTTPException(status_code=401, detail="invalid owner token")
 
@@ -99,7 +102,11 @@ def qa_list(session: Db) -> list[dict]:
 
 @router.post("/qa/generate")
 def qa_generate(session: Db) -> list[dict]:
-    return [_qa(e) for e in qa.save_drafts(session, qa.generate_qa())]
+    try:
+        drafts = qa.generate_qa()
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail=f"LLM unavailable, try again later ({exc})") from None
+    return [_qa(e) for e in qa.save_drafts(session, drafts)]
 
 
 @router.post("/qa/{entry_id}/approve")
@@ -112,12 +119,18 @@ def qa_approve(entry_id: str, session: Db) -> dict:
 
 @router.post("/qa/{entry_id}/reject")
 def qa_reject(entry_id: str, session: Db) -> dict:
-    return _qa(_or_404(qa.reject, session, entry_id))
+    entry = _or_404(qa.reject, session, entry_id)
+    audit.log_event(session, trace_id=None, actor="owner", event_type="qa_rejected", decision="rejected",
+                    payload={"qa_id": entry.id, "question": entry.question})
+    return _qa(entry)
 
 
 @router.put("/qa/{entry_id}")
 def qa_update(entry_id: str, body: QAUpdate, session: Db) -> dict:
-    return _qa(_or_404(qa.update, session, entry_id, body.question, body.answer, body.variants))
+    entry = _or_404(qa.update, session, entry_id, body.question, body.answer, body.variants)
+    audit.log_event(session, trace_id=None, actor="owner", event_type="qa_updated", decision="draft",
+                    payload={"qa_id": entry.id, "question": entry.question})
+    return _qa(entry)
 
 
 # ---- approvals ---------------------------------------------------------------------------------

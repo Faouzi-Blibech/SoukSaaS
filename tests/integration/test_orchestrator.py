@@ -12,6 +12,7 @@ from app.schemas import AgentMessage
 
 class Slow(BaseAgent):
     fallback_payload: ClassVar[dict[str, Any]] = {"reply": "please retry", "source": "system"}
+    idempotent_types: ClassVar[frozenset[str]] = frozenset({"chat_turn"})  # safe to run again
 
     def __init__(self, session, sleep_s, fail_first=0):
         super().__init__("sales", ("qa.search",), session)
@@ -62,3 +63,54 @@ def test_invalid_envelope_and_unknown_recipient_never_raise(db):
     unknown = AgentMessage(trace_id="t", sender="orchestrator", recipient="nobody", type="x")
     assert orch.dispatch(unknown).type == "agent_error"
     assert types(db).count("agent_error") == 2
+
+
+class Writer(Slow):
+    """Same behavior, but declares nothing idempotent (like every agent that writes rows)."""
+    idempotent_types: ClassVar[frozenset[str]] = frozenset()
+
+
+def test_non_idempotent_handler_not_retried_after_timeout(db):
+    orch = Orchestrator(db, timeout_s=0.05, retries=2)
+    agent = orch.register(Writer(db, sleep_s=0.3))
+    reply = orch.dispatch(msg())
+    assert reply.type == "agent_error" and reply.payload["fallback"] is True
+    time.sleep(0.5)  # let the abandoned worker finish
+    assert agent.calls == 1  # no parallel duplicate run
+    err = [e for e in db.exec(select(AuditEvent)) if e.event_type == "agent_error"]
+    assert len(err) == 1 and err[0].payload["attempts"] == 1
+
+
+def test_non_idempotent_handler_not_retried_after_exception(db):
+    orch = Orchestrator(db, timeout_s=1, retries=2)
+    agent = orch.register(Writer(db, sleep_s=0, fail_first=1))
+    assert orch.dispatch(msg()).type == "agent_error"
+    assert agent.calls == 1
+
+
+def test_real_agents_declare_nothing_idempotent():
+    from app.agents.insights import InsightsAgent
+    from app.agents.payment import PaymentAgent
+    from app.agents.sales import SalesAgent
+    for cls in (SalesAgent, PaymentAgent, InsightsAgent):
+        assert cls.idempotent_types == frozenset()
+
+
+class SessionSpy(BaseAgent):
+    def __init__(self, session):
+        super().__init__("sales", ("qa.search",), session)
+        self.seen: list = []
+
+    def handle(self, msg):
+        self.seen.append(self.session)
+        return {"reply": "ok"}
+
+
+def test_each_attempt_uses_its_own_session(db):
+    orch = Orchestrator(db, timeout_s=1, retries=0, isolate_sessions=True)
+    spy = orch.register(SessionSpy(db))
+    orch.dispatch(msg())
+    orch.dispatch(msg())
+    assert len(spy.seen) == 2
+    assert all(s is not db for s in spy.seen) and spy.seen[0] is not spy.seen[1]
+    assert audit.verify_chain(db)["ok"]
