@@ -43,6 +43,7 @@ def _link_state() -> str:
 def _sidebar() -> str:
     st.sidebar.html('<div class="sc-brand"><b>Souk<span>SaaS</span></b><div>Owner console</div></div>')
     choice = st.sidebar.radio("Page", list(PAGES), label_visibility="collapsed")
+    theme.mode_toggle()
     state = _link_state()
     kind = "ok" if state == "chain ok" else "bad"
     st.sidebar.html(
@@ -53,8 +54,12 @@ def _sidebar() -> str:
 
 def main() -> None:
     st.set_page_config(page_title="SoukSaaS owner console", layout="wide")
+    theme.init_mode()
+    choice = _sidebar()
     theme.inject_css()
-    PAGES[_sidebar()]()
+    theme.begin_page(choice)
+    PAGES[choice]()
+    theme.end_page()
 
 
 main()

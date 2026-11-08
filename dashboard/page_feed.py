@@ -42,6 +42,7 @@ def _feed() -> None:
             "decision": theme.decision_cell(e.get("decision")),
             "reasons": fmt_reasons(e.get("reasons")),
             "trace_id": e.get("trace_id"),
+            "_id": e.get("id") or e.get("trace_id"),
             "_flag": e.get("decision") in theme.FLAGGED,
         }
         for e in shown
@@ -50,7 +51,7 @@ def _feed() -> None:
         st.info("No flagged events in the last 100.")
         return
     theme.html_table(_COLUMNS, rows, mono={"ts", "actor", "event_type", "trace_id"}, raw={"decision"},
-                     flag_if=lambda r: r["_flag"])
+                     flag_if=lambda r: r["_flag"], feed="audit", id_key="_id")
 
 
 def render() -> None:

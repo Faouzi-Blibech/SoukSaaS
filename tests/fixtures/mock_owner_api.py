@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import random
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -87,8 +88,31 @@ ALERTS = [
 _state: dict[str, Any] = {"tampered": False}
 
 
+_SPAWN_EVERY_S = 7.0
+_spawn = {"last": time.monotonic(), "n": 0}
+
+
+def _maybe_spawn() -> None:
+    """Dev only: a fresh event appears every few seconds so the live feed has something to animate."""
+    now = time.monotonic()
+    for _ in range(3):
+        if now - _spawn["last"] < _SPAWN_EVERY_S:
+            break
+        _spawn["last"] += _SPAWN_EVERY_S
+        _spawn["n"] += 1
+        pool = _FLAGS if _rng.random() < 0.35 else _EVENT_POOL
+        actor, etype, dec, reasons = pool[_rng.randrange(len(pool))]
+        AUDIT.insert(0, {
+            "id": f"ae_{1000 + _spawn['n']}", "ts": datetime.now(UTC).replace(tzinfo=None, microsecond=0).isoformat(),
+            "trace_id": f"tr_{_rng.randrange(16**6):06x}", "actor": actor, "event_type": etype,
+            "decision": dec, "reasons": reasons, "payload": {"len": _rng.randrange(8, 240)},
+        })
+        del AUDIT[100:]
+
+
 @app.get("/owner/audit")
 def audit(limit: int = 100) -> list[dict[str, Any]]:
+    _maybe_spawn()
     return AUDIT[:limit]
 
 

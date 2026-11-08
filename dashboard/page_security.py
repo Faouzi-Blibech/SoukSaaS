@@ -59,7 +59,7 @@ def _evals(ev: dict) -> None:
 def _integrity(ver: dict, alerts: list[dict] | None) -> None:
     left, right = st.columns([1, 2])
     with left:
-        theme.embed_html(three_scene.integrity_ring_html(ver), 250)
+        theme.embed_html(three_scene.integrity_ring_html(ver, theme.mode()), 250)
     with right:
         bad = not ver.get("ok")
         c = st.columns(3)

@@ -147,3 +147,13 @@ def test_generated_ids_never_look_like_card_numbers():
         i = new_id()
         assert max(map(len, re.findall(r"\d+", i)), default=0) < 13
         assert not filters.find_card_spans(i)
+
+
+def test_three_scene_actor_mapping():
+    from dashboard.three_scene import canonical_actor
+
+    assert canonical_actor("owner") == "orchestrator"
+    assert canonical_actor("sales", "gateway_block") == "gateway"
+    assert canonical_actor("insights", "permission_denied") == "gateway"
+    for a in ("orchestrator", "sales", "payment", "insights"):
+        assert canonical_actor(a, "agent_message") == a

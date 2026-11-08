@@ -17,7 +17,7 @@ def _card(a: dict) -> None:
         kv = (
             '<div class="sc-kv">'
             f'<div>amount<b>{theme.esc(pay.get("amount"))} {theme.esc(pay.get("currency"))}</b></div>'
-            f'<div>risk score<b style="color:{theme.ALARM if risky else theme.TEXT}">{theme.esc(risk)}</b></div>'
+            f'<div>risk score<b style="color:{"var(--alarm-ink)" if risky else "var(--text)"}">{theme.esc(risk)}</b></div>'
             f'<div>plan<b>{theme.esc(pay.get("plan_id"))}</b></div>'
             f'<div>prospect<b>{theme.esc(pay.get("prospect_id"))}</b></div>'
             f'<div>payment status<b>{theme.esc(pay.get("status"))}</b></div></div>'
@@ -42,14 +42,15 @@ def render() -> None:
     if not items:
         st.success("No pending approvals.")
     for a in items:
-        _card(a)
-        c1, c2, _ = st.columns([1, 1, 5])
-        for col, action, label in ((c1, "approve", "Approve"), (c2, "reject", "Reject")):
-            if col.button(label, key=f"{action}_{a['id']}"):
-                ok, res = call(api.post, f"/owner/approvals/{a['id']}/{action}")
-                if ok:
-                    st.session_state["approval_result"] = res
-                    st.rerun()
+        with st.container(key=f"appr_{a['id']}"):  # key -> CSS hook for the decision feedback
+            _card(a)
+            c1, c2, _ = st.columns([1, 1, 5])
+            for col, action, label in ((c1, "approve", "Approve"), (c2, "reject", "Reject")):
+                if col.button(label, key=f"{action}_{a['id']}"):
+                    ok, res = call(api.post, f"/owner/approvals/{a['id']}/{action}")
+                    if ok:
+                        st.session_state["approval_result"] = res
+                        st.rerun()
     if "approval_result" in st.session_state:
         theme.section("Last result")
         st.json(st.session_state["approval_result"])
