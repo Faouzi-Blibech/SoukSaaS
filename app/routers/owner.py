@@ -9,11 +9,12 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app import audit
+from app.agents import insights as insights_agent
 from app.agents import payment as payment_agent
 from app.config import settings
 from app.db import get_session
 from app.models import ApprovalRequest, AuditEvent, Payment, QAEntry, SecurityAlert
-from app.services import analytics, qa
+from app.services import analytics, insights, qa, simulator
 
 EVAL_PATH = Path(__file__).resolve().parents[2] / "data" / "eval_results.json"
 
@@ -172,31 +173,32 @@ def evals() -> dict:
         return {}
 
 
-# ---- later steps (dashboard degrades cleanly on 501) ---------------------------------------------
-def _later() -> None:
-    raise HTTPException(status_code=501, detail="implemented in a later step")
-
-
+# ---- insights, recommendations, outreach drafts ----------------------------------------------
 @router.post("/insights/run")
-def insights_run(mode: str = "analyze") -> None:
-    _later()
+def insights_run(session: Db, mode: str = Query("analyze", pattern="^(analyze|opportunities)$")):
+    """Dispatched through the orchestrator: shows up as agent_message events, retried on failure."""
+    payload, _ok = insights_agent.run(session, mode)
+    if mode == "analyze":
+        return {k: payload.get(k, []) for k in ("needs", "objections", "recommendations")}
+    return payload.get("items", [])
 
 
 @router.get("/recommendations")
-def recommendations() -> None:
-    _later()
+def recommendations(session: Db) -> list[dict]:
+    return insights.list_recommendations(session)
 
 
 @router.get("/drafts")
-def drafts() -> None:
-    _later()
+def drafts(session: Db) -> list[dict]:
+    return insights.list_drafts(session)
 
 
 @router.post("/drafts/{draft_id}/mark_sent")
-def draft_mark_sent(draft_id: str) -> None:
-    _later()
+def draft_mark_sent(draft_id: str, session: Db) -> dict:
+    return _or_404(insights.mark_sent, session, draft_id)
 
 
+# ---- simulator ---------------------------------------------------------------------------------
 @router.post("/simulate")
-def simulate(scenario: str = "demo") -> None:
-    _later()
+def simulate(session: Db, scenario: str = Query("demo", pattern="^(demo|attack)$")) -> dict:
+    return simulator.run_demo(session) if scenario == "demo" else simulator.run_attacks(session)

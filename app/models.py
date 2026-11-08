@@ -8,7 +8,10 @@ from sqlmodel import Field, SQLModel
 
 
 def new_id() -> str:
-    return uuid.uuid4().hex
+    """Random id. Underscores every 8 hex chars keep digit runs under 13, so an id can never look like
+    a card number to the gateway's Luhn filter (plain uuid hex did, ~0.2% of the time)."""
+    h = uuid.uuid4().hex
+    return "_".join(h[i:i + 8] for i in range(0, 32, 8))
 
 
 def utcnow() -> datetime:

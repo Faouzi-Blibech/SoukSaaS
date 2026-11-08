@@ -71,7 +71,18 @@ class PaymentAgent(BaseAgent):
         pay.status = res.status
         self._save(pay)
         self._audit(msg, "payment_created", pay, [res.reason], {"status": pay.status, "amount": pay.amount})
+        self._notify_insights(msg, pay)
         return self._result(msg, pay.status, pay.id)
+
+    def _notify_insights(self, msg: AgentMessage, pay: Payment) -> None:
+        """Spec 6.3 step 4: a settled payment is visible to Insights/Analytics in the live feed.
+
+        Notification only (`record`): the permission matrix has no payment -> insights message right."""
+        if pay.status == "succeeded" and self.orchestrator is not None:
+            self.orchestrator.record(AgentMessage(
+                trace_id=msg.trace_id, sender="payment", recipient="insights", type="payment_result",
+                payload={"payment_id": pay.id, "status": pay.status, "plan_id": pay.plan_id,
+                         "amount": pay.amount}))
 
     # ---- branches --------------------------------------------------------------------------
     def _finalize_block(self, msg: AgentMessage, pay: Payment, reasons: list[str], risk: float):

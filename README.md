@@ -35,7 +35,7 @@ uv run python tasks.py run         # API + product page
 uv run python tasks.py dashboard   # owner console
 uv run python tasks.py test        # unit and integration tests
 uv run python tasks.py eval        # attack evals (writes data/eval_results.json)
-uv run python tasks.py demo        # scripted demo scenario (available after the demo step)
+uv run python tasks.py demo        # reseed + scripted demo (spec section 13) in-process, prints a transcript
 ```
 
 - Product page: http://127.0.0.1:8000/

@@ -2,7 +2,7 @@
 
 Single source of truth for where the project stands. Updated after every step.
 Anyone continuing (Claude Code, OpenCode, a human): read `AGENTS.md`, then this file, then only the
-spec sections you need. Last updated: 2026-11-08.
+spec sections you need. Last updated: 2026-11-08 (step W done).
 
 ## 1. What we are building
 SoukSaaS: a prototype "Autonomous FinTech Team" for the TechX ENIT x ENICarthage 14h hackathon
@@ -38,13 +38,12 @@ uv run python tasks.py dashboard  # Streamlit owner console
 | S3b | Futuristic dashboard (three.js agent network, HUD theme, `tests/fixtures/mock_owner_api.py`) | done | see PR list |
 | S4 | Orchestrator, agents (base, sales, payment), public + owner routers, integration tests | done | see PR list |
 | S2b | Q&A matcher fix (ambiguity guard, word+char scoring, richer variants) | done | see PR list |
-| W | Wiring: `app/agents/insights.py` wrapper, owner endpoints insights/run, recommendations, drafts, mark_sent (dedupe drafts per lead), `/owner/simulate` (demo + attack), `python tasks.py demo`, dashboard actor-name check against real backend | next | - |
-| F | Final: end-to-end browser check (product page chat + pay, dashboard on real backend), review pass, PITCH numbers | after W | - |
+| W | Wiring: `app/agents/insights.py`, owner endpoints insights/run, recommendations, drafts, mark_sent (drafts deduped per lead), `/owner/simulate` (demo + attack, `app/services/simulator.py`), `python tasks.py demo`, dashboard actor mapping vs real backend actors | done | see PR list |
+| F | Final: end-to-end browser check (product page chat + pay, dashboard on real backend), review pass, PITCH numbers | next | - |
 
 ## 4. Next actions (in order)
-1. W (wiring step above). Owner endpoints currently return 501 for insights/recommendations/drafts/simulate.
-2. F (final checks).
-3. Optional: held-out Q&A question set (current 100% is optimistic, see docs/SECURITY.md).
+1. F (final checks): browser check of product page + dashboard on the real backend (`uv run python tasks.py demo`, then `run` and `dashboard`), review pass, PITCH numbers.
+2. Optional: held-out Q&A question set (current 100% is optimistic, see docs/SECURITY.md).
 
 ## Dev tips
 - Dashboard without backend: `uv run uvicorn tests.fixtures.mock_owner_api:app --port 8001`, then
@@ -74,3 +73,5 @@ branch) and never merged by the agent; the repo owner merges in order.
 - Q&A TF-IDF threshold 0.37 (`app/services/qa.py`), narrow margin: worst off-topic 0.34 vs weakest paraphrase 0.39. Embeddings path untested (optional extra).
 - Dashboard `eval_results.json` shape fixed in API_CONTRACT.md section 5; S6 must write exactly that.
 - Browser JS of the chat widget not yet exercised (done in S7 end-to-end check).
+- Fixed in W: `new_id()` plain uuid hex contained 13+ digit runs ~0.2% of the time, which the gateway Luhn filter read as a card number and rejected the payment (flaky tests, random demo rejections). Ids now use `_` every 8 hex chars.
+- Demo/simulate burst step: the 3rd attempt after two declines is held by the `declined_then_new_attempt` rule (expected), so each run adds 2 pending approvals.
